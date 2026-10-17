@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Upload" type="micropython-tools-configuration-type" factoryName="micropython-tools-upload-configuration">
+    <option name="exclusionsMigrated" value="true" />
+    <option name="migrated" value="true" />
+    <option name="pathMappings">
+      <map>
+        <entry key="$PROJECT_DIR$/main.py" value="/" />
+        <entry key="$PROJECT_DIR$/src" value="/src" />
+      </map>
+    </option>
+    <option name="resetOnSuccess" value="false" />
+    <method v="2" />
+  </configuration>
+</component>
