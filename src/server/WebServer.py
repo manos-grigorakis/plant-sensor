@@ -1,0 +1,285 @@
+import json
+import network
+import select
+import socket
+
+from src.server.DnsServer import DnsServer
+
+class WebServer:
+    SERVER_PORT = 80
+    STATUS_IDLE = 'idle'
+    STATUS_CONNECTING = 'connecting'
+    STATUS_CONNECTED = 'connected'
+    STATUS_FAILED = 'failed'
+
+    PORTAL_IP = '192.168.4.1'
+    PORTAL_URL = f'http://{PORTAL_IP}/'
+
+    WIFI_API_ENDPOINT = '/api/wifi'
+
+    def __init__(self, network_manager, config_store) -> None:
+        self.network_manager = network_manager
+        self.config_store = config_store
+        self.pending_credentials = None
+        self.connection_status = self.STATUS_IDLE
+
+    def start(self) -> None:
+        """Run the server loop, handling one client at a time
+
+        Servers both the web page (TCP) and the DNS answers (UDP) of the captive portal
+        """
+        server_socket = self._setup_web_server()
+        routes = self._configure_servers_assets()
+
+        dns_server = DnsServer(self.PORTAL_IP)
+        dns_socket = dns_server.start()
+
+        # Wakes up when either socket has something to read
+        poller = select.poll()
+        poller.register(server_socket, select.POLLIN)
+        poller.register(dns_socket, select.POLLIN)
+
+        print(f'Web server listening on port {self.SERVER_PORT}')
+
+        while True:
+            for ready_socket, _ in poller.poll():
+                if ready_socket == dns_socket:
+                    dns_server.handle()
+                else:
+                    self._handle_client(server_socket, routes)
+
+            if self.pending_credentials is not None:
+                ssid, password = self.pending_credentials
+
+                self._try_connect(ssid, password)
+                self.pending_credentials = None
+
+    def _setup_web_server(self) -> socket.socket:
+        """Create the listening TCP socket on SERVER_PORT
+
+        :return: The server socket ready for accept()
+        """
+        print("Starting web server...")
+
+        # Create a web-server with TCP over IPv4
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # Allow rebinding the port right after a restart, instead of failing with EADDRINUSE
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # '' all interfaces, allowing clients on the AP to reach the server
+        server_socket.bind(('', self.SERVER_PORT))
+
+        # How many connection can wait in the queue while one is being server
+        server_socket.listen(5)
+        return server_socket
+
+    def _handle_client(self, server_socket, routes) -> None:
+        """Accept one client and server its request
+
+        :param server_socket: The listening socket that has a client waiting
+        :param routes: Maps a path to (file_path, content_type) for static files
+        """
+        conn, _ = server_socket.accept()
+        conn.settimeout(5)  # Limits how long recv()/sendall() on this client may wait
+
+        try:
+            method, path, body = self._read_request(conn)
+            self._handle_request(method, path, body, routes, conn)
+        except Exception as error:
+            print(f'HTTP server error: {error}')
+        finally:
+            conn.close()
+
+    def _handle_request(self, method, path, body, routes, conn) -> None:
+        """Route a parsed HTTP request to the matching handler
+
+        :param method: HTTP verb (e.g. 'GET' or 'POST')
+        :param path: Requested path (e.g. '/status')
+        :param body: Request body as a string, empty for GET requests
+        :param routes: Maps a path to (file_path, content_type) for static files
+        :param conn: The client socket returned by accept()
+        """
+        # Form submission from the setup page
+        if method == 'POST' and path == f'{self.WIFI_API_ENDPOINT}/connect':
+            self._handle_connect(conn, body)
+            return
+
+        # Polled by the frontend for connection result
+        if method == 'GET' and path == f'{self.WIFI_API_ENDPOINT}/status':
+            self._handle_status(conn)
+            return
+
+        # Unknown GET paths include the connectivity check of the phones, sends them to set up page
+        if method == 'GET' and path not in routes:
+            self._send_redirect(conn, self.PORTAL_URL)
+            return
+
+        if method != 'GET':
+            self._send_not_found(conn)
+            return
+
+        file_path, content_type = routes[path]
+
+        try:
+            file = open(file_path, 'rb')
+        except OSError:
+            self._send_not_found(conn)
+            return
+
+        with file:
+            self.send_response(conn, '200 OK', content_type)
+            self._send_file(conn, file)
+
+    def _handle_connect(self, conn, body) -> None:
+        """Handles POST /connect: validate the credentials and queue a connection attempt
+
+        :param conn: The client socket retuned by accept()
+        :param body: The request body expected '{"ssid": "...", "password": "..."}'
+        """
+        try:
+            form = json.loads(body)
+        except ValueError:
+            # Malformed JSON
+            self.send_response(conn, '400 Bad Request', 'text/plain')
+            conn.sendall(b'Invalid JSON')
+            return
+
+        if not isinstance(form, dict):
+            self.send_response(conn, "400 Bad Request", "text/plain")
+            conn.sendall(b'Expected a JSON object')
+            return
+
+        ssid = form.get('ssid')
+        password = form.get('password')
+
+        if not ssid or not password:
+            self.send_response(conn, '400 Bad Request', 'text/plain')
+            conn.sendall(b'Missing ssid or password')
+            return
+
+        self.pending_credentials = (ssid, password)
+        self.connection_status = self.STATUS_CONNECTING
+        self.send_response(conn, '202 Accepted', 'text/plain')
+        conn.sendall(b'Connecting')
+
+    def _handle_status(self, conn) -> None:
+        """Handles GET /status with a 200 HTTP status code and the actual status in JSON"""
+        payload = json.dumps({'status': self.connection_status})
+        self.send_response(conn, '200 OK', 'application/json')
+        conn.sendall(payload.encode())
+
+    def _try_connect(self, ssid, password) -> None:
+        """Attempts to establish a connection to the Wi-Fi network and updates the connection status accordingly"""
+        wlan = network.WLAN(network.WLAN.IF_STA)
+        wlan.active(True)
+
+        if self.network_manager.connect_to_network(wlan, ssid, password):
+            self.config_store.save_credentials(ssid, password)
+            self.connection_status = self.STATUS_CONNECTED
+        else:
+            self.connection_status = self.STATUS_FAILED
+
+    @staticmethod
+    def _configure_servers_assets() -> dict[str, tuple[str, str]]:
+        """Map each public URL path to the static file that servers it
+
+        :return: A dictionary of path -> (file path on the device, MIME type)
+        """
+        return {
+            '/': ('/src/web/index.html', 'text/html'),
+            '/style.css': ('/src/web/style.css', 'text/css'),
+            '/app.js': ('/src/web/app.js', 'application/javascript')
+        }
+
+    @staticmethod
+    def _read_request(conn) -> tuple[str, str, str]:
+        """Read one full HTTP request from the client socket
+
+        :param conn: The client socket returned by accept()
+        :return: A (method, path, body) tuple, with the body decoded to a string
+        """
+        data = b''
+
+        # Keep reading until the blank line that ends the header arrived
+        while b'\r\n\r\n' not in data:
+            chunk = conn.recv(512)
+
+            if not chunk:
+                break
+            data += chunk
+
+        head, _, body = data.partition(b'\r\n\r\n')
+        lines = head.decode().split('\r\n')
+
+        # First line (GET /status HTTP/1.1)
+        method, path, _ = lines[0].split(' ', 2)
+
+        # Remaining lines (Content-Length: 42)
+        headers = {}
+        for line in lines[1:]:
+            key, _, value = line.partition(':')
+            headers[key.strip().lower()] = value.strip()
+
+        # Read the rest of the body
+        length = int(headers.get('content-length', 0))
+        while len(body) < length:
+            chunk = conn.recv(512)
+            if not chunk:
+                break
+            body += chunk
+        return method, path, body.decode()
+
+    @staticmethod
+    def _send_redirect(conn, location) -> None:
+        """Send a 302 redirect, which makes the phone open the setup page
+
+        :param conn: The client socket returned by accept()
+        :param location: The full URL the client should go
+        """
+        response = (
+            'HTTP/1.0 302 Found\r\n'
+            f'Location: {location}\r\n'
+            'Connection: close\r\n'
+            '\r\n'
+        )
+        conn.sendall(response.encode())
+
+    @staticmethod
+    def send_response(conn, status, content_type):
+        """Send the HTTP status line and headers to the client
+
+        The body is not sent here, the caller sends it afterward
+
+        :param conn: The client socket returned by accept()
+        :param status: Status code and reason (`e.g. '200 OK')
+        :param content_type: MIME type (`e.g. 'text/html')
+        """
+        response = (
+            f'HTTP/1.0 {status}\r\n'
+            f'Content-Type: {content_type}; charset=utf-8\r\n'
+            'Connection: close\r\n'
+            '\r\n'
+        )
+
+        conn.sendall(response.encode())
+
+    def _send_not_found(self, conn) -> None:
+        """Send a 404 not found response with a body response"""
+        self.send_response(conn, '404 Not Found', 'text/plain')
+        conn.sendall(b'404 Not Found\r\n')
+
+    @staticmethod
+    def _send_file(conn, file) -> None:
+        """Stream an open file to the client in small chunks
+
+        :param conn: The client socket returned by accept()
+        :param file: A file object opened in binary mode ('rb')
+        """
+        while True:
+            chunk = file.read(512)
+
+            if not chunk:
+                break
+
+            conn.sendall(chunk)

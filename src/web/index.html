@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plant Sensor Setup</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+
+<body>
+    <main class="setup-card">
+        <header class="setup-header">
+            <h1>Plant Sensor</h1>
+            <p>Connect your device to your Wi-Fi network to get started.</p>
+        </header>
+
+        <section class="setup-content">
+            <h2>Wi-Fi Configuration</h2>
+
+            <form>
+                <div class="form-group">
+                    <label for="ssid">Network name (SSID)</label>
+                    <input
+                        id="ssid"
+                        type="text"
+                        name="ssid"
+                        placeholder="Enter Wi-Fi network name"
+                        autocomplete="off"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Wi-Fi Password</label>
+                    <input
+                        id="password"
+                        type="password"
+                        name="password"
+                        placeholder="Enter Wi-Fi password"
+                        required
+                    >
+                </div>
+
+                <button type="submit" class="submit-button">
+                    Connect to Wi-Fi
+                </button>
+            </form>
+
+            <p class="form-footer">
+                Your network credentials will be saved on this device.
+            </p>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="ESP32 - Run" type="micropython-tools-configuration-type" factoryName="micropython-tools-execute-configuration">
+    <option name="path" value="$PROJECT_DIR$/main.py" />
+    <option name="resetBeforeExecution" value="false" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Upload" run_configuration_type="micropython-tools-configuration-type" />
+    </method>
+  </configuration>
+</component>
