@@ -7,6 +7,7 @@ import time
 
 from src.connectivity.mqtt_manager import MqttManager
 from src.server.DnsServer import DnsServer
+from src.server.SetupPayloadValidator import SetupPayloadValidator
 
 class WebServer:
     SERVER_PORT = 80
@@ -160,16 +161,14 @@ class WebServer:
             conn.sendall(b'Expected a JSON object')
             return
 
-        wifi = self._parse_wifi(form)
-        mqtt = self._parse_mqtt(form)
-        sensor = self._parse_sensor(form)
+        config = SetupPayloadValidator.validate(form)
 
-        if wifi is None or mqtt is None or sensor is None:
+        if config is None:
             self.send_response(conn, '400 Bad Request', 'text/plain')
-            conn.sendall(b'Missing required fields')
+            conn.sendall(b'Missing or invalid fields')
             return
 
-        self.pending_config = {'wifi': wifi, 'mqtt': mqtt, 'sensor': sensor}
+        self.pending_config = config
         self.failure_reason = None
         self.connection_status = self.STATUS_CONNECTING
         self.send_response(conn, '202 Accepted', 'text/plain')
@@ -216,46 +215,6 @@ class WebServer:
     def _should_restart(self) -> bool:
         """Whether the restart deadline set after as successful setup has passed"""
         return self.restart_at is not None and time.ticks_diff(time.ticks_ms(), self.restart_at) >= 0
-
-    @staticmethod
-    def _parse_wifi(form) -> dict | None:
-        """Return the validated wifi section or None"""
-        wifi = form.get('wifi') if isinstance(form, dict) else None
-
-        if not isinstance(wifi, dict) or not wifi.get('ssid') or not wifi.get('password'):
-            return None
-
-        return { 'ssid': wifi['ssid'], 'password': wifi['password'] }
-
-    @staticmethod
-    def _parse_mqtt(form) -> dict | None:
-        """Return the validated mqtt section or None"""
-        mqtt = form.get('mqtt') if isinstance(form, dict) else None
-
-        if not isinstance(mqtt, dict) or not mqtt.get('server'):
-            return None
-
-        try:
-            port = int(mqtt.get('port', 1883))
-        except (TypeError, ValueError):
-            return None
-
-        return {
-            'server': mqtt['server'],
-            'port': port,
-            'username': mqtt.get('username', ''),
-            'password': mqtt.get('password', ''),
-        }
-
-    @staticmethod
-    def _parse_sensor(form) -> dict | None:
-        """Return the validated sensor section or None"""
-        sensor = form.get('sensor') if isinstance(form, dict) else None
-
-        if not isinstance(sensor, dict) or not sensor.get('plant_name'):
-            return None
-
-        return { 'plant_name': sensor['plant_name'] }
 
     @staticmethod
     def _test_mqtt(mqtt_config) -> bool:
