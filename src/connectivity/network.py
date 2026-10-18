@@ -82,18 +82,4 @@ class Network:
         # Last 3 bytes in hex (6 chars)
         suffix = binascii.hexlify(machine.unique_id()[-3:]).decode()
         return f'{self.HOSTNAME}-{suffix}'
-    
-    @staticmethod
-    def _scan_available_wlans(wlan) -> None:
-        """Scans for available WLAN networks and prints them out
-
-        :param wlan: The WLAN object to be scanned
-        """
-        print('Scanning for available WLANs...')
-
-        for idx, item in enumerate(wlan.scan()):
-            ssid = item[0].decode("utf-8")
-            mac = ":".join(f"{byte:02X}" for byte in item[1])
-
-            print(f'{idx} SSID: {ssid} | MAC: {mac} | Channel: {item[2]} | Hidden: {item[5]}')
         
