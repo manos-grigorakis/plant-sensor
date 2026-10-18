@@ -29,7 +29,7 @@ class SoilMoisture:
 
         return {
             'status': status,
-            'moisture_percentage': percentage
+            'moisture_percentage': round(percentage, 2)
         }
 
     def _validate_sensor_calibration(self) -> None:
