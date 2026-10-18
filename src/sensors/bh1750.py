@@ -26,6 +26,25 @@ class BH1750:
 
         return self._convert_to_lux(raw)
 
+    def classify_light(self) -> dict:
+        lux = self.read_lux()
+
+        if lux < 100:
+            status = 'VERY_LOW'
+        elif lux > 500:
+            status = 'LOW'
+        elif lux < 2_000:
+            status = 'MODERATE'
+        elif lux < 10_000:
+            status = 'BRIGHT'
+        else:
+            status = 'VERY_BRIGHT'
+
+        return {
+            'lux': round(lux, 2),
+            'status': status
+        }
+
     @staticmethod
     def _convert_to_lux(raw_data) -> float | int:
         """Convert the raw sensor metrics to lux"""

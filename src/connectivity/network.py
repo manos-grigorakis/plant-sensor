@@ -16,13 +16,14 @@ class Network:
 
         :return: True if connected, False otherwise (no credentials or attempt failed)
         """
-        credentials = self.config_store.load_credentials()
+        credentials = self.config_store.load_config("wifi")
 
         if credentials is None:
             print('No saved credentials found')
             return False
 
-        ssid, password = credentials
+        ssid = credentials['ssid']
+        password = credentials['password']
 
         # Station mode (the device joins an existing network as client)
         wlan = network.WLAN(network.WLAN.IF_STA)
@@ -57,6 +58,7 @@ class Network:
         if not wlan.isconnected():
             print('Connecting to network...')
             network.hostname(self._built_hostname())
+            wlan.disconnect()
             wlan.connect(ssid, password)
 
             # Wait for connection
@@ -80,18 +82,4 @@ class Network:
         # Last 3 bytes in hex (6 chars)
         suffix = binascii.hexlify(machine.unique_id()[-3:]).decode()
         return f'{self.HOSTNAME}-{suffix}'
-    
-    @staticmethod
-    def _scan_available_wlans(wlan) -> None:
-        """Scans for available WLAN networks and prints them out
-
-        :param wlan: The WLAN object to be scanned
-        """
-        print('Scanning for available WLANs...')
-
-        for idx, item in enumerate(wlan.scan()):
-            ssid = item[0].decode("utf-8")
-            mac = ":".join(f"{byte:02X}" for byte in item[1])
-
-            print(f'{idx} SSID: {ssid} | MAC: {mac} | Channel: {item[2]} | Hidden: {item[5]}')
         

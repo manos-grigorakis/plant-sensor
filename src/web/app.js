@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const POLL_INTERVAL_MS = 1500;
     const MAX_POLL_FAILURES = 15;
-    const WIFI_API_ENDPOINT = '/api/wifi'
+    const API_ENDPOINT = '/api'
 
     const form = document.querySelector('form');
     const submitButton = document.querySelector('.submit-button');
@@ -17,21 +17,32 @@ document.addEventListener('DOMContentLoaded', () => {
         event.preventDefault();
 
         const ssid = document.getElementById('ssid').value.trim();
-        const password = document.getElementById('password').value;
+        const wifiPassword = document.getElementById('password').value;
+        const plantName = document.getElementById('plant-name').value;
+        const mqttServer = document.getElementById('mqtt-server').value;
+        const mqttPort = document.getElementById('mqtt-port').value
+        const mqttUsername = document.getElementById('mqtt-username').value
+        const mqttPassword = document.getElementById('mqtt-password').value
 
-        if (!ssid || !password) {
+        if (!ssid || !wifiPassword || !plantName || !mqttServer || !mqttPort) {
             showStatus('Please fill in all fields', 'error');
             return;
         }
 
+        const payload = {
+            wifi: {ssid, password: wifiPassword},
+            mqtt: {server: mqttServer, port: mqttPort, username: mqttUsername, password: mqttPassword},
+            sensor: {plant_name: plantName},
+        }
+
         setLoading(true);
-        showStatus('Connecting to Wi-Fi...', 'info');
+        showStatus('Submitting...', 'info');
 
         try {
-            const response = await fetch(`${WIFI_API_ENDPOINT}/connect`, {
+            const response = await fetch(`${API_ENDPOINT}/setup`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ssid, password})
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -55,8 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         while (true) {
             try {
-                const response = await fetch(`${WIFI_API_ENDPOINT}/status`);
-                const { status } = await response.json();
+                const response = await fetch(`${API_ENDPOINT}/status`);
+                const { status, reason } = await response.json();
                 failures = 0;
 
                 if (status === 'connected') {
@@ -65,19 +76,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (status === 'failed') {
-                    showStatus('Could not connect. Check the name and password', 'error');
+                    showStatus(failureMessage(reason), 'error');
                     return
                 }
             } catch (e) {
                 failures++;
 
                 if (failures > MAX_POLL_FAILURES) {
-                    showStatus('Lost contact with the device. If the plant sensor network is gone, setup succeeded', 'info')
+                    showStatus('Lost contact with the device. This is expected after setup. ' +
+                        'Reconnect to the Plant-Sensor network to check the result. ' +
+                        'If the network is gone, setup succeeded', 'info')
                     return
                 }
             }
 
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        }
+    }
+
+    /**
+     * Shows the result of the previous setup attempt when the page re-opens
+     *
+     * @returns {Promise<void>}
+     */
+    async function restoreStatus() {
+        try {
+            const response = await fetch(`${API_ENDPOINT}/status`);
+            const { status, reason } = await response.json();
+
+            if (status === 'failed') {
+                showStatus(failureMessage(reason), 'error');
+            } else if (status === 'connecting') {
+                setLoading(true);
+                showStatus('Connecting to Wi-Fi...', 'info');
+                await pollStatus()
+                setLoading(false);
+            }
+        } catch (e) {
+            // Device is unreachable
         }
     }
 
@@ -88,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function setLoading(loading) {
         submitButton.disabled = loading;
-        submitButton.textContent = loading ? 'Connecting...' : 'Connect to Wi-Fi';
+        submitButton.textContent = loading ? 'Connecting...' : 'Save and Connect';
     }
 
     /**
@@ -101,4 +137,19 @@ document.addEventListener('DOMContentLoaded', () => {
         statusMessage.textContent = message;
         statusMessage.className = `status-message ${type}`;
     }
+
+    /**
+     * Builds the error message for a failed setup attempt
+     *
+     * @param reason The failing part reported by the device ('wifi' or 'mqtt')
+     * @returns {string}
+     */
+    function failureMessage(reason) {
+        return reason === 'mqtt'
+            ? 'Wi-Fi connected, but the MQTT broker rejected the settings. Check server, port and credentials'
+            : 'Could not connect to the Wi-Fi. Check the name and password';
+    }
+
+    restoreStatus();
 });
+

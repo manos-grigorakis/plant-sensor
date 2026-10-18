@@ -16,9 +16,8 @@
         </header>
 
         <section class="setup-content">
-            <h2>Wi-Fi Configuration</h2>
-
             <form>
+                <h2>Wi-Fi Configuration</h2>
                 <div class="form-group">
                     <label for="ssid">Network name (SSID)</label>
                     <input
@@ -42,13 +41,74 @@
                     >
                 </div>
 
+                <h2>Sensor & MQTT Configuration</h2>
+                <div class="form-group">
+                    <label for="plant-name">Plant Name</label>
+                    <input
+                        id="plant-name"
+                        type="text"
+                        name="plant-name"
+                        placeholder="Enter your plant name"
+                        autocomplete="off"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="mqtt-server">MQTT Server</label>
+                    <input
+                        id="mqtt-server"
+                        type="text"
+                        name="mqtt-server"
+                        placeholder="Enter your MQTT server"
+                        autocomplete="off"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="mqtt-port">MQTT Port</label>
+                    <input
+                        id="mqtt-port"
+                        type="number"
+                        name="mqtt-port"
+                        value="1883"
+                        min="1"
+                        max="65535"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="mqtt-username">MQTT Username</label>
+                    <input
+                        id="mqtt-username"
+                        type="text"
+                        name="mqtt-username"
+                        placeholder="Enter MQTT Username"
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="mqtt-password">MQTT Password</label>
+                    <input
+                        id="mqtt-password"
+                        type="password"
+                        name="mqtt-password"
+                        placeholder="Enter MQTT Password"
+                        autocomplete="new-password"
+                    >
+                </div>
+
+
                 <button type="submit" class="submit-button">
-                    Connect to Wi-Fi
+                    Save and Connect
                 </button>
             </form>
 
             <p class="form-footer">
-                Your network credentials will be saved on this device.
+                Your network credentials and configuration will be saved on this device.
             </p>
         </section>
     </main>
