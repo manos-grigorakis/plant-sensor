@@ -1,8 +1,11 @@
 import json
+import logging
 
 from binascii import hexlify
 from machine import unique_id
 from umqtt.simple import MQTTClient
+
+log = logging.getLogger('mqtt')
 
 class MqttManager:
     def __init__(self, server, port, username, password) -> None:
@@ -15,16 +18,18 @@ class MqttManager:
     def connect(self) -> bool:
         """Connect to the MQTT broker"""
         try:
-            print(f'Connecting to MQTT broker ...')
+            log.info('Connecting to the MQTT broker')
             self.client.connect()
+            log.info('Connected to the MQTT broker')
             return True
         except Exception as error:
-            print(f'MQTT connection failed: {error}')
+            log.error('Failed to connect to the MQTT broker: %s', error)
             return False
 
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker"""
         self.client.disconnect()
+        log.debug('Disconnected from the MQTT broker')
 
     def publish_discovery(self, device_name) -> None:
         """Publish discovery message to MQTT broker"""
@@ -61,7 +66,7 @@ class MqttManager:
             }
 
             topic = "homeassistant/sensor/{}_{}{}".format(self.device_id, key, "/config")
-            print(f'Publishing discovery message to {topic}')
+            log.info('Publishing discovery message to %s', topic)
             self.client.publish(topic.encode(), json.dumps(config).encode(), retain=True)
 
     def publish_telemetry(self, light, moisture) -> None:
@@ -71,7 +76,7 @@ class MqttManager:
             "moisture": moisture
         }
 
-        print(f'Publishing telemetry to {self.telemetry_topic}')
+        log.info('Publishing telemetry to %s', self.telemetry_topic)
         self.client.publish(self.telemetry_topic, json.dumps(payload).encode())
 
     @classmethod

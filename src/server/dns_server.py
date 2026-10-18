@@ -1,4 +1,7 @@
+import logging
 import socket
+
+log = logging.getLogger('dns')
 
 class DnsServer:
     DNS_PORT = 53
@@ -17,17 +20,23 @@ class DnsServer:
         # Create a UDP over IPv4 socket for DNS
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(('', self.DNS_PORT))
+        log.info('DNS server started on port %s', self.DNS_PORT)
         return self.socket
 
     def handle(self) -> None:
         """Read one query and send back the answer, call only when socket is readable"""
-        query, client = self.socket.recvfrom(256)
+        try:
+            query, client = self.socket.recvfrom(256)
 
-        # Ignore anything too short to be a DNS query
-        if len(query) <= self.HEADER_SIZE:
-            return
+            # Ignore anything too short to be a DNS query
+            if len(query) <= self.HEADER_SIZE:
+                log.debug('Ignored short DNS packet from %s', client[0])
+                return
 
-        self.socket.sendto(self._build_response(query), client)
+            log.debug('DNS query from %s', client[0])
+            self.socket.sendto(self._build_response(query), client)
+        except (OSError, ValueError) as error:
+            log.warning('DNS query failed: %s', error)
 
     def _build_response(self, query) -> bytes:
         """Builds a DNS answer that points the queried name to our IP address

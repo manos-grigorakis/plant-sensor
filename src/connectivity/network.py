@@ -1,7 +1,10 @@
 import binascii
+import logging
 import machine
 import network
 import time
+
+log = logging.getLogger('network')
 
 class Network:
     AP_SSID = 'Plant-Sensor'
@@ -19,7 +22,7 @@ class Network:
         credentials = self.config_store.load_config("wifi")
 
         if credentials is None:
-            print('No saved credentials found')
+            log.info('No credentials found')
             return False
 
         ssid = credentials['ssid']
@@ -44,7 +47,7 @@ class Network:
         ap.config(ssid=self.AP_SSID, password=self.AP_PASSWORD, security=network.WLAN.SEC_WPA2, max_clients=5)
         ap.active(True)
 
-        print(f'AP IP: {ap.ifconfig()[0]}')
+        log.info('Access point IP address: %s', ap.ifconfig()[0])
 
     def connect_to_network(self, wlan, ssid, password, timeout_s=15) -> bool:
         """Attempts to connect to network by returning True or False
@@ -56,7 +59,7 @@ class Network:
         :return: True if the connection was successful, False otherwise
         """
         if not wlan.isconnected():
-            print('Connecting to network...')
+            log.info('Attempting to connect to network with SSID %s', ssid)
             network.hostname(self._built_hostname())
             wlan.disconnect()
             wlan.connect(ssid, password)
@@ -68,10 +71,10 @@ class Network:
                 time.sleep(0.5)
 
         if wlan.isconnected():
-            print(f'IP Address: {wlan.ifconfig()[0]}')
+            log.info('Connected to network, IP address: %s', wlan.ifconfig()[0])
             return True
         else:
-            print(f'Failed to connect, WLAN status: {wlan.status()}')
+            log.warning('Failed to connect to network with SSID: %s, WLAN status: %s', ssid, wlan.status())
             return False
 
     def _built_hostname(self) -> str:

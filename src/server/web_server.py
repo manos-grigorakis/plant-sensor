@@ -1,4 +1,6 @@
 import json
+import logging
+
 import machine
 import network
 import select
@@ -8,6 +10,8 @@ import time
 from src.connectivity.mqtt_manager import MqttManager
 from src.server.dns_server import DnsServer
 from src.server.setup_payload_validator import SetupPayloadValidator
+
+log = logging.getLogger('web-server')
 
 class WebServer:
     SERVER_PORT = 80
@@ -48,7 +52,7 @@ class WebServer:
         poller.register(server_socket, select.POLLIN)
         poller.register(dns_socket, select.POLLIN)
 
-        print(f'Web server listening on port {self.SERVER_PORT}')
+        log.info('Web server listening on %s', self.PORTAL_IP)
 
         while True:
             for ready_socket, _ in poller.poll(self.POLL_TIMEOUT_MS):
@@ -63,6 +67,7 @@ class WebServer:
                 self._try_connect(config)
 
             if self._should_restart():
+                log.info('Restarting device')
                 machine.reset()
 
     def _setup_web_server(self) -> socket.socket:
@@ -70,7 +75,7 @@ class WebServer:
 
         :return: The server socket ready for accept()
         """
-        print("Starting web server...")
+        log.info('Starting web server')
 
         # Create a web-server with TCP over IPv4
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -91,16 +96,18 @@ class WebServer:
         :param server_socket: The listening socket that has a client waiting
         :param routes: Maps a path to (file_path, content_type) for static files
         """
-        conn, _ = server_socket.accept()
-        conn.settimeout(5)  # Limits how long recv()/sendall() on this client may wait
+        conn = None
 
         try:
+            conn, _ = server_socket.accept()
+            conn.settimeout(5)  # Limits how long recv()/sendall() on this client may wait
             method, path, body = self._read_request(conn)
             self._handle_request(method, path, body, routes, conn)
         except Exception as error:
-            print(f'HTTP server error: {error}')
+            log.warning('Failed to handle HTTP request: %s', error)
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def _handle_request(self, method, path, body, routes, conn) -> None:
         """Route a parsed HTTP request to the matching handler
@@ -148,11 +155,13 @@ class WebServer:
         :param conn: The client socket retuned by accept()
         :param body: The request body expected '{"wifi": {...}, "mqtt": {...}, "sensor": {...}}'
         """
+        log.info('Setup request received')
         try:
             form = json.loads(body)
         except ValueError:
             # Malformed JSON
             self.send_response(conn, '400 Bad Request', 'text/plain')
+            log.warning('Setup request contains invalid JSON')
             conn.sendall(b'Invalid JSON')
             return
 
@@ -165,12 +174,14 @@ class WebServer:
 
         if config is None:
             self.send_response(conn, '400 Bad Request', 'text/plain')
+            log.warning('Setup request rejected: invalid configuration')
             conn.sendall(b'Missing or invalid fields')
             return
 
         self.pending_config = config
         self.failure_reason = None
         self.connection_status = self.STATUS_CONNECTING
+        log.info('Setup accepted, connecting...')
         self.send_response(conn, '202 Accepted', 'text/plain')
         conn.sendall(b'Connecting')
 
@@ -193,7 +204,7 @@ class WebServer:
         try:
             connected = self.network_manager.connect_to_network(wlan, wifi['ssid'], wifi['password'])
         except OSError as error:
-            print(f'Wi-Fi connect error: {error}')
+            log.error('Wi-Fi connect error: %s', error)
             connected = False
 
         if not connected:
@@ -211,6 +222,7 @@ class WebServer:
         self.config_store.save_config('wifi', wifi)
         self.connection_status = self.STATUS_CONNECTED
         self.restart_at = time.ticks_add(time.ticks_ms(), self.RESTART_DELAY_MS)
+        log.info('Setup saved, restarting')
 
     def _should_restart(self) -> bool:
         """Whether the restart deadline set after as successful setup has passed"""
@@ -229,6 +241,7 @@ class WebServer:
 
     def _fail(self, reason) -> None:
         """Marks the setup as failed and tracks which part failed"""
+        log.warning('Setup failed for %s', reason)
         self.connection_status = self.STATUS_FAILED
         self.failure_reason = reason
 
