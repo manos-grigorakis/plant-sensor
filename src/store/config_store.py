@@ -1,5 +1,8 @@
 import json
+import logging
 import os
+
+log = logging.getLogger('config-store')
 
 class ConfigStore:
     CONFIG_PATH = '/config.json'
@@ -19,14 +22,18 @@ class ConfigStore:
             pass
 
         os.rename(self.CONFIG_TMP_PATH, self.CONFIG_PATH)
+        log.info('Configuration section %s saved successfully', section)
 
     def load_config(self, section = None) -> dict | None:
         """Load all configuration or a specific section"""
         try:
             with open(self.CONFIG_PATH, 'r') as file:
                 config = json.load(file)
-        except (OSError, ValueError):
-            # Missing file (OSError), corrupt JSON (ValueError)
+        except OSError:
+            log.debug('Configuration file not found')
+            return None
+        except ValueError as error:
+            log.error('Invalid JSON configuration file, %s', error)
             return None
 
         if section is None:
