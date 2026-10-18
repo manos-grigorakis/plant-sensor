@@ -4,8 +4,8 @@ import machine
 sys.path.insert(0, '/src')
 
 from src.connectivity.network import Network
-from src.server.WebServer import WebServer
-from src.store.ConfigStore import ConfigStore
+from src.server.web_server import WebServer
+from src.store.config_store import ConfigStore
 from machine import Pin, I2C, ADC
 from src.sensors.bh1750 import BH1750
 from src.sensors.soil_moisture import SoilMoisture

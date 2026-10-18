@@ -6,8 +6,8 @@ import socket
 import time
 
 from src.connectivity.mqtt_manager import MqttManager
-from src.server.DnsServer import DnsServer
-from src.server.SetupPayloadValidator import SetupPayloadValidator
+from src.server.dns_server import DnsServer
+from src.server.setup_payload_validator import SetupPayloadValidator
 
 class WebServer:
     SERVER_PORT = 80
