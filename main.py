@@ -18,12 +18,12 @@ SLEEP_INTERVAL_MS = 60_000
 AIR_VALUE = 52_000
 WATER_VALUE = 29_400
 
-def init_moisture_sensor():
+def read_moisture_sensor():
     adc = ADC(Pin(1))
     moisture_sensor = SoilMoisture(AIR_VALUE, WATER_VALUE, adc)
     return moisture_sensor.classify_moisture()
 
-def init_lux_sensor():
+def read_lux_sensor():
     # Create I2C peripheral at frequency of 100kHz
     i2c = I2C(0, freq=100_000, sda=Pin(23), scl=Pin(24))
 
@@ -43,7 +43,7 @@ if __name__ == "__main__":
         if mqtt.connect():
             try:
                 mqtt.publish_discovery(sensor_config['plant_name'])
-                mqtt.publish_telemetry(init_lux_sensor(), init_moisture_sensor())
+                mqtt.publish_telemetry(read_lux_sensor(), read_moisture_sensor())
             finally:
                 mqtt.disconnect()
 
