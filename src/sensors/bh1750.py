@@ -31,7 +31,7 @@ class BH1750:
 
         if lux < 100:
             status = 'VERY_LOW'
-        elif lux > 500:
+        elif lux < 500:
             status = 'LOW'
         elif lux < 2_000:
             status = 'MODERATE'
