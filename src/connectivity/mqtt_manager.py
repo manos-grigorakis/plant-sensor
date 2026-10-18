@@ -12,19 +12,21 @@ class MqttManager:
         self.telemetry_topic = (b'plant-sensor/' + self.client_id + b'/telemetry')
         self.client = MQTTClient(self.client_id, server, port, username, password)
 
-    def connect(self) -> None:
+    def connect(self) -> bool:
         """Connect to the MQTT broker"""
         try:
             print(f'Connecting to MQTT broker ...')
             self.client.connect()
-        except OSError as error:
+            return True
+        except Exception as error:
             print(f'MQTT connection failed: {error}')
+            return False
 
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker"""
         self.client.disconnect()
 
-    def publish_discovery(self) -> None:
+    def publish_discovery(self, device_name) -> None:
         """Publish discovery message to MQTT broker"""
         sensors = {
             "light": {
@@ -52,7 +54,7 @@ class MqttManager:
                 "unit_of_measurement": sensor["unit_of_measurement"],
                 "device": {
                     "identifiers": [self.device_id],
-                    "name": "plant-sensor-pothos-1",
+                    "name": device_name,
                     "manufacturer": "Seeed Studio",
                     "model": "XIAO ESP32-C5",
                 }
@@ -71,3 +73,12 @@ class MqttManager:
 
         print(f'Publishing telemetry to {self.telemetry_topic}')
         self.client.publish(self.telemetry_topic, json.dumps(payload).encode())
+
+    @classmethod
+    def from_config(cls, mqtt_config):
+        return cls(
+            mqtt_config['server'],
+            mqtt_config['port'],
+            mqtt_config['username'] or None,
+            mqtt_config['password'] or None
+        )

@@ -32,4 +32,4 @@ class ConfigStore:
         if section is None:
             return config
 
-        return config[section]
+        return config.get(section)

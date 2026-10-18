@@ -1,8 +1,10 @@
 import json
+
 import network
 import select
 import socket
 
+from src.connectivity.mqtt_manager import MqttManager
 from src.server.DnsServer import DnsServer
 
 class WebServer:
@@ -15,12 +17,13 @@ class WebServer:
     PORTAL_IP = '192.168.4.1'
     PORTAL_URL = f'http://{PORTAL_IP}/'
 
-    WIFI_API_ENDPOINT = '/api/wifi'
+    API_ENDPOINT = '/api'
 
     def __init__(self, network_manager, config_store) -> None:
         self.network_manager = network_manager
         self.config_store = config_store
-        self.pending_credentials = None
+        self.pending_config = None
+        self.failure_reason = None
         self.connection_status = self.STATUS_IDLE
 
     def start(self) -> None:
@@ -47,12 +50,10 @@ class WebServer:
                     dns_server.handle()
                 else:
                     self._handle_client(server_socket, routes)
-
-            if self.pending_credentials is not None:
-                ssid, password = self.pending_credentials
-
-                self._try_connect(ssid, password)
-                self.pending_credentials = None
+            if self.pending_config is not None:
+                config = self.pending_config
+                self.pending_config = None
+                self._try_connect(config)
 
     def _setup_web_server(self) -> socket.socket:
         """Create the listening TCP socket on SERVER_PORT
@@ -95,18 +96,18 @@ class WebServer:
         """Route a parsed HTTP request to the matching handler
 
         :param method: HTTP verb (e.g. 'GET' or 'POST')
-        :param path: Requested path (e.g. '/status')
+        :param path: Requested path (e.g. '/api/status')
         :param body: Request body as a string, empty for GET requests
         :param routes: Maps a path to (file_path, content_type) for static files
         :param conn: The client socket returned by accept()
         """
         # Form submission from the setup page
-        if method == 'POST' and path == f'{self.WIFI_API_ENDPOINT}/connect':
-            self._handle_connect(conn, body)
+        if method == 'POST' and path == f'{self.API_ENDPOINT}/setup':
+            self._handle_setup(conn, body)
             return
 
         # Polled by the frontend for connection result
-        if method == 'GET' and path == f'{self.WIFI_API_ENDPOINT}/status':
+        if method == 'GET' and path == f'{self.API_ENDPOINT}/status':
             self._handle_status(conn)
             return
 
@@ -131,11 +132,11 @@ class WebServer:
             self.send_response(conn, '200 OK', content_type)
             self._send_file(conn, file)
 
-    def _handle_connect(self, conn, body) -> None:
-        """Handles POST /connect: validate the credentials and queue a connection attempt
+    def _handle_setup(self, conn, body) -> None:
+        """Handles POST /setup: validate the credentials and queue a connection attempt
 
         :param conn: The client socket retuned by accept()
-        :param body: The request body expected '{"ssid": "...", "password": "..."}'
+        :param body: The request body expected '{"wifi": {...}, "mqtt": {...}, "sensor": {...}}'
         """
         try:
             form = json.loads(body)
@@ -150,35 +151,113 @@ class WebServer:
             conn.sendall(b'Expected a JSON object')
             return
 
-        ssid = form.get('ssid')
-        password = form.get('password')
+        wifi = self._parse_wifi(form)
+        mqtt = self._parse_mqtt(form)
+        sensor = self._parse_sensor(form)
 
-        if not ssid or not password:
+        if wifi is None or mqtt is None or sensor is None:
             self.send_response(conn, '400 Bad Request', 'text/plain')
-            conn.sendall(b'Missing ssid or password')
+            conn.sendall(b'Missing required fields')
             return
 
-        self.pending_credentials = (ssid, password)
+        self.pending_config = {'wifi': wifi, 'mqtt': mqtt, 'sensor': sensor}
+        self.failure_reason = None
         self.connection_status = self.STATUS_CONNECTING
         self.send_response(conn, '202 Accepted', 'text/plain')
         conn.sendall(b'Connecting')
 
     def _handle_status(self, conn) -> None:
-        """Handles GET /status with a 200 HTTP status code and the actual status in JSON"""
-        payload = json.dumps({'status': self.connection_status})
+        """Handles GET /status with a 200 HTTP status code and the status and the failure reason in JSON"""
+        payload = json.dumps({
+            'status': self.connection_status,
+            'reason': self.failure_reason
+        })
         self.send_response(conn, '200 OK', 'application/json')
         conn.sendall(payload.encode())
 
-    def _try_connect(self, ssid, password) -> None:
-        """Attempts to establish a connection to the Wi-Fi network and updates the connection status accordingly"""
+    def _try_connect(self, config) -> None:
+        """Attempts to establish a connection to the Wi-Fi network and saves the config on success"""
         wlan = network.WLAN(network.WLAN.IF_STA)
         wlan.active(True)
 
-        if self.network_manager.connect_to_network(wlan, ssid, password):
-            self.config_store.save_config("wifi", {"ssid": ssid, "password": password})
-            self.connection_status = self.STATUS_CONNECTED
-        else:
-            self.connection_status = self.STATUS_FAILED
+        wifi = config['wifi']
+
+        try:
+            connected = self.network_manager.connect_to_network(wlan, wifi['ssid'], wifi['password'])
+        except OSError as error:
+            print(f'Wi-Fi connect error: {error}')
+            connected = False
+
+        if not connected:
+            wlan.active(False)
+            self._fail('wifi')
+            return
+
+        if not self._test_mqtt(config['mqtt']):
+            wlan.active(False)
+            self._fail('mqtt')
+            return
+
+        self.config_store.save_config('mqtt', config['mqtt'])
+        self.config_store.save_config('sensor', config['sensor'])
+        self.config_store.save_config('wifi', wifi)
+        self.connection_status = self.STATUS_CONNECTED
+
+    @staticmethod
+    def _parse_wifi(form) -> dict | None:
+        """Return the validated wifi section or None"""
+        wifi = form.get('wifi') if isinstance(form, dict) else None
+
+        if not isinstance(wifi, dict) or not wifi.get('ssid') or not wifi.get('password'):
+            return None
+
+        return { 'ssid': wifi['ssid'], 'password': wifi['password'] }
+
+    @staticmethod
+    def _parse_mqtt(form) -> dict | None:
+        """Return the validated mqtt section or None"""
+        mqtt = form.get('mqtt') if isinstance(form, dict) else None
+
+        if not isinstance(mqtt, dict) or not mqtt.get('server'):
+            return None
+
+        try:
+            port = int(mqtt.get('port', 1883))
+        except (TypeError, ValueError):
+            return None
+
+        return {
+            'server': mqtt['server'],
+            'port': port,
+            'username': mqtt.get('username', ''),
+            'password': mqtt.get('password', ''),
+        }
+
+    @staticmethod
+    def _parse_sensor(form) -> dict | None:
+        """Return the validated sensor section or None"""
+        sensor = form.get('sensor') if isinstance(form, dict) else None
+
+        if not isinstance(sensor, dict) or not sensor.get('plant_name'):
+            return None
+
+        return { 'plant_name': sensor['plant_name'] }
+
+    @staticmethod
+    def _test_mqtt(mqtt_config) -> bool:
+        """Checks that the broker accepts the given MQTT settings"""
+        mqtt = MqttManager.from_config(mqtt_config)
+
+        if not mqtt.connect():
+            return False
+
+        mqtt.disconnect()
+        return True
+
+    def _fail(self, reason) -> None:
+        """Marks the setup as failed and tracks which part failed"""
+        self.connection_status = self.STATUS_FAILED
+        self.failure_reason = reason
 
     @staticmethod
     def _configure_servers_assets() -> dict[str, tuple[str, str]]:

@@ -22,7 +22,8 @@ class Network:
             print('No saved credentials found')
             return False
 
-        ssid, password = credentials
+        ssid = credentials['ssid']
+        password = credentials['password']
 
         # Station mode (the device joins an existing network as client)
         wlan = network.WLAN(network.WLAN.IF_STA)
@@ -57,6 +58,7 @@ class Network:
         if not wlan.isconnected():
             print('Connecting to network...')
             network.hostname(self._built_hostname())
+            wlan.disconnect()
             wlan.connect(ssid, password)
 
             # Wait for connection
