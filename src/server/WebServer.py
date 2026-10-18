@@ -175,7 +175,7 @@ class WebServer:
         wlan.active(True)
 
         if self.network_manager.connect_to_network(wlan, ssid, password):
-            self.config_store.save_credentials(ssid, password)
+            self.config_store.save_config("wifi", {"ssid": ssid, "password": password})
             self.connection_status = self.STATUS_CONNECTED
         else:
             self.connection_status = self.STATUS_FAILED

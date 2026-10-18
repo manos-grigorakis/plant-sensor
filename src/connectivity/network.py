@@ -16,7 +16,7 @@ class Network:
 
         :return: True if connected, False otherwise (no credentials or attempt failed)
         """
-        credentials = self.config_store.load_credentials()
+        credentials = self.config_store.load_config("wifi")
 
         if credentials is None:
             print('No saved credentials found')
