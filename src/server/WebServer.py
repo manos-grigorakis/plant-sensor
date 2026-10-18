@@ -1,8 +1,9 @@
 import json
-
+import machine
 import network
 import select
 import socket
+import time
 
 from src.connectivity.mqtt_manager import MqttManager
 from src.server.DnsServer import DnsServer
@@ -19,11 +20,15 @@ class WebServer:
 
     API_ENDPOINT = '/api'
 
+    POLL_TIMEOUT_MS = 500
+    RESTART_DELAY_MS = 5_000
+
     def __init__(self, network_manager, config_store) -> None:
         self.network_manager = network_manager
         self.config_store = config_store
         self.pending_config = None
         self.failure_reason = None
+        self.restart_at = None
         self.connection_status = self.STATUS_IDLE
 
     def start(self) -> None:
@@ -45,15 +50,19 @@ class WebServer:
         print(f'Web server listening on port {self.SERVER_PORT}')
 
         while True:
-            for ready_socket, _ in poller.poll():
+            for ready_socket, _ in poller.poll(self.POLL_TIMEOUT_MS):
                 if ready_socket == dns_socket:
                     dns_server.handle()
                 else:
                     self._handle_client(server_socket, routes)
+
             if self.pending_config is not None:
                 config = self.pending_config
                 self.pending_config = None
                 self._try_connect(config)
+
+            if self._should_restart():
+                machine.reset()
 
     def _setup_web_server(self) -> socket.socket:
         """Create the listening TCP socket on SERVER_PORT
@@ -202,6 +211,11 @@ class WebServer:
         self.config_store.save_config('sensor', config['sensor'])
         self.config_store.save_config('wifi', wifi)
         self.connection_status = self.STATUS_CONNECTED
+        self.restart_at = time.ticks_add(time.ticks_ms(), self.RESTART_DELAY_MS)
+
+    def _should_restart(self) -> bool:
+        """Whether the restart deadline set after as successful setup has passed"""
+        return self.restart_at is not None and time.ticks_diff(time.ticks_ms(), self.restart_at) >= 0
 
     @staticmethod
     def _parse_wifi(form) -> dict | None:
